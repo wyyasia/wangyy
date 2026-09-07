@@ -1,0 +1,30 @@
+腾讯视频会员
+  s_bf9ceac724a983::t_cdbbbc00b0d7f7 15-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "b9ec103ddf0032518f1200b27afb6f9903abc6f2",
+  "prompts": {},
+  "sessions": {
+    "s_bf9ceac724a983": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a9919cb168bb97b17ce5f56",
+        "model": "kimi-k2.7-code__dev"
+      },
+      "human_author": "王永远 <wangyy10@asiaingo.com>",
+      "custom_attributes": {
+        "tool_name": "Edit",
+        "source_scene": "agent",
+        "edit_kind": "file_edit",
+        "external_session_id": "6a9919cb168bb97b17ce5f56",
+        "runtime_client": "trae-tob-git-ai",
+        "tool_use_id": "6a9e12ae78ef3c34b3a4dff0",
+        "client_type": "ide",
+        "session_id": "6a9919cb168bb97b17ce5f56",
+        "operation_id": "6a9e12ae78ef3c34b3a4dff0"
+      }
+    }
+  }
+}
