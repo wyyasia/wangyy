@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""解析腾讯视频相关 URL，提取观看与支付域名信息。"""
+"""解析腾讯视频相关 URL，提取观看、下单与支付域名信息。"""
 
 from urllib.parse import urlparse
 import re
@@ -43,6 +43,12 @@ QQ_PAY_DOMAINS = {
     "www.wechatpay.com",
 }
 
+# 腾讯视频下单/订单相关域名
+QQ_ORDER_DOMAINS = {
+    "vip.video.qq.com",
+    "film.qq.com",
+}
+
 
 def extract_domain(url: str) -> dict:
     """
@@ -54,6 +60,7 @@ def extract_domain(url: str) -> dict:
         - domain: 主域名（如 v.qq.com，去除 www.）
         - subdomain: 子域名前缀（如 m）
         - is_qq_video: 是否属于已知的腾讯视频域名
+        - is_qq_order: 是否属于腾讯视频下单/订单相关域名
         - is_qq_pay: 是否属于腾讯视频支付相关域名
         - is_qq: 是否属于 qq.com 体系
     """
@@ -80,6 +87,7 @@ def extract_domain(url: str) -> dict:
         subdomain = parts[0]
 
     is_qq_video = domain in QQ_VIDEO_DOMAINS or domain.endswith(".v.qq.com")
+    is_qq_order = domain in QQ_ORDER_DOMAINS
     is_qq_pay = domain in QQ_PAY_DOMAINS or domain.endswith((".tenpay.com", ".wechatpay.com"))
     is_qq = domain.endswith(".qq.com") or domain == "qq.com"
 
@@ -89,6 +97,7 @@ def extract_domain(url: str) -> dict:
         "domain": domain,
         "subdomain": subdomain,
         "is_qq_video": is_qq_video,
+        "is_qq_order": is_qq_order,
         "is_qq_pay": is_qq_pay,
         "is_qq": is_qq,
     }
@@ -108,6 +117,7 @@ def main():
         print(f"主域名   : {result['domain']}")
         print(f"子域名   : {result['subdomain'] or '无'}")
         print(f"腾讯视频域名: {'是' if result['is_qq_video'] else '否'}")
+        print(f"腾讯下单域名: {'是' if result['is_qq_order'] else '否'}")
         print(f"腾讯支付域名: {'是' if result['is_qq_pay'] else '否'}")
         print(f"QQ 系域名   : {'是' if result['is_qq'] else '否'}")
     except ValueError as e:
