@@ -54,11 +54,17 @@ QQ_PAY_RESULT_DOMAINS = {
     # 支付结果页：展示开通成功/失败
     "film.qq.com",
     "pay.video.qq.com",
+    "v.qq.com",
     # 会员权益 / 状态查询：确认开通是否成功
     "vip.video.qq.com",
     "m.vip.video.qq.com",
     "my.video.qq.com",
 }
+
+# 支付结果回调类域名后缀（后端服务器间通信）
+_PAY_CALLBACK_SUFFIXES = (".notify.qq.com", ".callback.qq.com", ".pay.qq.com")
+# 微信支付结果回调域名
+_WEIXIN_CALLBACK_DOMAINS = {"api.mch.weixin.qq.com"}
 
 # URL 路径中的支付结果确认特征（回调、结果页、订单状态）
 _PAY_RESULT_PATH = re.compile(
@@ -94,6 +100,8 @@ def extract_domain(url: str) -> dict:
         - is_qq_pay_result: 是否用于确认会员支付是否成功
         - pay_result_type: 支付结果确认类型
             none=无关 | result_page=支付结果页 | status_query=会员状态查询 | async_callback=支付结果回调
+            回调类域名通过后缀匹配（*.notify.qq.com / *.callback.qq.com / *.pay.qq.com）
+            以及微信支付回调域名（api.mch.weixin.qq.com）识别
         - is_qq: 是否属于 qq.com 体系
     """
     if not url or not isinstance(url, str):
@@ -121,11 +129,11 @@ def extract_domain(url: str) -> dict:
     # 支付结果确认类型：none / result_page / status_query / async_callback
     pay_result_type = "none"
 
-    if domain == "film.qq.com" or domain == "pay.video.qq.com":
+    if domain in ("film.qq.com", "pay.video.qq.com", "v.qq.com"):
         pay_result_type = "result_page"
     elif domain in ("vip.video.qq.com", "m.vip.video.qq.com", "my.video.qq.com"):
         pay_result_type = "status_query"
-    elif domain.endswith((".notify.qq.com", ".callback.qq.com")):
+    elif domain.endswith(_PAY_CALLBACK_SUFFIXES) or domain in _WEIXIN_CALLBACK_DOMAINS:
         pay_result_type = "async_callback"
 
     # 根据路径特征判定（回调/结果页）
