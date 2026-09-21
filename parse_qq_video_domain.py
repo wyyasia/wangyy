@@ -84,6 +84,9 @@ _PAY_RESULT_TYPE_TEXT = {
     "async_callback": "支付结果回调",
 }
 
+# 日志文本中提取 URL 的特征
+_LOG_URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+
 
 def extract_domain(url: str) -> dict:
     """
@@ -167,25 +170,111 @@ def extract_domain(url: str) -> dict:
     }
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("用法: python parse_qq_video_domain.py <腾讯视频URL>")
-        print("示例: python parse_qq_video_domain.py https://v.qq.com/x/cover/xxxxx.html")
+def filter_pay_domains(log_text: str, include_result: bool = True) -> list[dict]:
+    """
+    从日志文本中筛选腾讯会员支付相关域名。
+
+    参数：
+        - log_text: 日志文本（可包含 URL、域名、普通日志行）
+        - include_result: 是否同时包含支付结果确认域名（默认 True）
+
+    返回：
+        - 符合条件的域名信息列表，元素结构与 extract_domain 返回值一致。
+    """
+    if not log_text or not isinstance(log_text, str):
+        return []
+
+    matched = []
+    seen = set()
+
+    for url in _LOG_URL_RE.findall(log_text):
+        # 清理 URL 尾部可能附带的分隔符
+        url = url.rstrip(",.;)")
+        if url in seen:
+            continue
+        seen.add(url)
+
+        try:
+            info = extract_domain(url)
+        except ValueError:
+            continue
+
+        if info["is_qq_pay"] or (include_result and info["is_qq_pay_result"]):
+            matched.append(info)
+
+    return matched
+
+
+def _print_domain(result: dict) -> None:
+    """打印单个域名解析结果。"""
+    print(f"原始 URL : {result['original_url']}")
+    print(f"完整主机 : {result['netloc']}")
+    print(f"主域名   : {result['domain']}")
+    print(f"子域名   : {result['subdomain'] or '无'}")
+    print(f"腾讯视频域名: {'是' if result['is_qq_video'] else '否'}")
+    print(f"腾讯下单域名: {'是' if result['is_qq_order'] else '否'}")
+    print(f"腾讯支付域名: {'是' if result['is_qq_pay'] else '否'}")
+    print(f"支付结果域名: {'是' if result['is_qq_pay_result'] else '否'}")
+    print(f"结果确认类型: {_PAY_RESULT_TYPE_TEXT.get(result['pay_result_type'], '未知')}")
+    print(f"QQ 系域名   : {'是' if result['is_qq'] else '否'}")
+
+
+def _filter_from_file(path: str, include_result: bool = True) -> None:
+    """从日志文件筛选支付相关域名并打印。"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            log_text = f.read()
+    except OSError as e:
+        print(f"读取日志文件失败: {e}")
         sys.exit(1)
 
-    raw_url = sys.argv[1]
+    results = filter_pay_domains(log_text, include_result=include_result)
+    if not results:
+        print("未在日志中筛选到腾讯会员支付相关域名。")
+        return
+
+    print(f"共筛选到 {len(results)} 条腾讯会员支付相关域名：")
+    for i, info in enumerate(results, 1):
+        print(f"\n[{i}] {info['original_url']}")
+        _print_domain(info)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print("用法:")
+        print("  1. 解析单个 URL:")
+        print("     python parse_qq_video_domain.py <腾讯视频URL>")
+        print("  2. 从日志文件筛选支付域名:")
+        print("     python parse_qq_video_domain.py --filter <日志文件>")
+        print("  3. 从标准输入筛选支付域名:")
+        print("     echo <日志文本> | python parse_qq_video_domain.py --stdin")
+        sys.exit(1)
+
+    # 日志筛选模式
+    if args[0] == "--filter":
+        if len(args) < 2:
+            print("用法: python parse_qq_video_domain.py --filter <日志文件>")
+            sys.exit(1)
+        _filter_from_file(args[1])
+        return
+
+    if args[0] == "--stdin":
+        log_text = sys.stdin.read()
+        results = filter_pay_domains(log_text)
+        if not results:
+            print("未在标准输入中筛选到腾讯会员支付相关域名。")
+            return
+        print(f"共筛选到 {len(results)} 条腾讯会员支付相关域名：")
+        for i, info in enumerate(results, 1):
+            print(f"\n[{i}] {info['original_url']}")
+            _print_domain(info)
+        return
+
+    # 单个 URL 解析模式
     try:
-        result = extract_domain(raw_url)
-        print(f"原始 URL : {result['original_url']}")
-        print(f"完整主机 : {result['netloc']}")
-        print(f"主域名   : {result['domain']}")
-        print(f"子域名   : {result['subdomain'] or '无'}")
-        print(f"腾讯视频域名: {'是' if result['is_qq_video'] else '否'}")
-        print(f"腾讯下单域名: {'是' if result['is_qq_order'] else '否'}")
-        print(f"腾讯支付域名: {'是' if result['is_qq_pay'] else '否'}")
-        print(f"支付结果域名: {'是' if result['is_qq_pay_result'] else '否'}")
-        print(f"结果确认类型: {_PAY_RESULT_TYPE_TEXT.get(result['pay_result_type'], '未知')}")
-        print(f"QQ 系域名   : {'是' if result['is_qq'] else '否'}")
+        result = extract_domain(args[0])
+        _print_domain(result)
     except ValueError as e:
         print(f"解析失败: {e}")
         sys.exit(1)
