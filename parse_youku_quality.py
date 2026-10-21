@@ -8,13 +8,24 @@
   - 会员判定：达到 mp4hd2(超清/1080P) 及以上 → 疑似会员
   - 降级识别：请求档位高于实际返回档位 → 鉴权降级（非会员特征）
 
-依据：stream_type 编码 → 清晰度对照（复用公开解析项目通行映射）
+依据 stream_type 编码 → 清晰度对照（复用公开解析项目通行映射）：
   3gp     流畅 360P      免费
   flv/mp4 标清 480P      免费
   flvhd/mp4hd 高清 540P-720P  免费（部分片源）
   mp4hd2  超清 1080P     多数需会员
   mp4hd3  蓝光 1080P     会员
   mp4hd4  4K/HDR 2160P   会员/SVIP
+
+=== 数字档位判断口径（ftype/hd 等参数按数字 1-6） ===
+  数字档位 = 清晰度档位，数字越大越清晰，共 6 档：
+    1 = 流畅 360P        免费
+    2 = 标清 480P        免费
+    3 = 高清 720P        免费（部分片源）
+    4 = 超清 1080P       多数需会员
+    5 = 蓝光 1080P 蓝光  会员
+    6 = 4K / HDR 2160P   会员/SVIP
+  会员判定口径：数字档位 >= 4（超清 1080P 及以上）视为会员档。
+  降级判定口径：请求档位数字 > 实际可用档位数字 → 疑似鉴权降级（非会员特征）。
 
 注意：接口字段为私有协议、版本变化快，请用真机抓包校验对照表。
 """
@@ -40,6 +51,19 @@ STREAM_TYPES = {
     "mp4hd3":   (5,  "蓝光", "1080P 蓝光", True),
     "hd4":      (6,  "4K/HDR", "2160P",   True),
     "mp4hd4":   (6,  "4K/HDR", "2160P",   True),
+}
+
+# 数字档位判断口径（ftype/hd 等参数的清晰度数字 1-6）
+# 数字档 = 清晰度档位，数字越大越清晰
+# 与 STREAM_TYPES 的权重一一对应：3gp=1 ... mp4hd4=6
+# 会员判定口径：档位 >= 4（超清 1080P 及以上）视为会员档
+NUMERIC_LEVELS = {
+    "1": ("3gp",     1, "流畅",     "360P",        False),
+    "2": ("mp4",     2, "标清",     "480P",        False),
+    "3": ("mp4hd",   3, "高清",     "540P-720P",   False),
+    "4": ("mp4hd2",  4, "超清",     "1080P",       True),
+    "5": ("mp4hd3",  5, "蓝光",     "1080P 蓝光",  True),
+    "6": ("mp4hd4",  6, "4K/HDR",   "2160P",       True),
 }
 
 MEMBER_THRESHOLD_WEIGHT = 4  # 权重 >= 4 视为会员档
@@ -147,23 +171,44 @@ _M3U8_STREAM_NAME_RE = re.compile(r"([\w.-]*?(?:mp4hd[0-9]?|flvhd|3gp|flv|mp4|hd
 
 
 def parse_m3u8_url(url: str) -> dict:
-    """从 m3u8 请求 URL 的 query 参数中提取清晰度。"""
+    """从 m3u8 请求 URL 的 query 参数中提取清晰度。
+
+    query 值可以是：
+      - stream_type 名字（stream_type=mp4hd2）
+      - 数字档位（ftype=4，按 1-6 清晰度档位口径判断）
+    """
     parsed = urlparse(url)
     qs = parse_qs(parsed.query)
     for key in _QUALITY_PARAM_KEYS:
         vals = qs.get(key)
         if not vals:
             continue
-        value = vals[0]
-        # 值可能是数字码（ftype=3），转成 stream_type 名字
+        value = vals[0].strip()
         meta = _lookup(value)
+        numeric_level = None
         if meta is None:
-            # 数字未知 → 查数字映射（启发式，需抓包校准）
-            name = _numeric_quality_reverse(value)
-            meta = _lookup(name) if name else None
+            # 数字 1-6 档位口径
+            info = _numeric_quality_lookup(value)
+            if info:
+                stream_type, weight, name, reso, is_member_tier = info
+                return {
+                    "source": "m3u8_url",
+                    "param": key,
+                    "numeric_level": value,
+                    "stream_type": stream_type,
+                    "name": name,
+                    "resolution": reso,
+                    "member_tier": is_member_tier,
+                    "is_member": weight >= MEMBER_THRESHOLD_WEIGHT,
+                }
+            continue
         if meta:
+            # 权重即数字档位（STREAM_TYPES 权重 1-6 与 NUMERIC_LEVELS 一一对应）
+            numeric_level = str(meta[0])
             return {
                 "source": "m3u8_url",
+                "param": key,
+                "numeric_level": numeric_level,
                 "stream_type": value,
                 "name": meta[1],
                 "resolution": meta[2],
@@ -192,6 +237,7 @@ def parse_m3u8_text(text: str) -> dict:
     top = max(unique.items(), key=lambda kv: kv[1][0])
     return {
         "source": "m3u8_text",
+        "numeric_level": str(top[1][0]),  # 权重即数字档位
         "stream_type": top[0],
         "name": top[1][1],
         "resolution": top[1][2],
@@ -200,18 +246,9 @@ def parse_m3u8_text(text: str) -> dict:
     }
 
 
-# 老旧数字码 → stream_type 的启发式映射（不确定，需抓包校准）
-_NUMERIC_QUALITY_MAP = {
-    "0": "3gp",
-    "1": "flv",
-    "2": "flvhd",
-    "3": "mp4hd2",
-}
-
-
-def _numeric_quality_reverse(num: str):
-    """数字码反转（启发式），不存在返回 None。"""
-    return _NUMERIC_QUALITY_MAP.get(num)
+def _numeric_quality_lookup(num: str):
+    """按数字 1-6 档位口径查清晰度；返回 (stream_type, 权重, 名称, 分辨率, 是否会员档)，否则 None。"""
+    return NUMERIC_LEVELS.get(num)
 
 
 def _print_play_result(r: dict) -> None:
@@ -224,7 +261,9 @@ def _print_play_result(r: dict) -> None:
     h = r["highest_available"]
     if h["stream_type"]:
         tier = "会员档" if h["member_tier"] else "免费档"
-        print(f"最高可用: {h['stream_type']} {h['name']} {h['resolution']} ({tier})")
+        # 权重即数字档位（1-6）
+        numeric_level = STREAM_TYPES[h["stream_type"]][0]
+        print(f"最高可用: {h['stream_type']} 档位{int(numeric_level)} {h['name']} {h['resolution']} ({tier})")
     print(f"是否会员(推断): {'是' if r['is_member'] else '否'}")
     if r["downgraded"]:
         print("降级: 声明档位高于实际档位 → 疑似鉴权降级（非会员特征）")
