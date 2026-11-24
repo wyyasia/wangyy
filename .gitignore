@@ -9,3 +9,6 @@ __pycache__/
 # 虚拟环境
 .venv/
 venv/
+
+# docx 构建中间文件
+.docx-build/
